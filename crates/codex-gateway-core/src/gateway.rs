@@ -455,6 +455,10 @@ fn build_responses_body_from_chat(body: &Value) -> Value {
         .unwrap_or_else(|| json!("gpt-5-codex"));
     let messages = body.get("messages").cloned().unwrap_or_else(|| json!([]));
     let mut input = Vec::new();
+    let mut instructions = body
+        .get("instructions")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     if let Some(messages) = messages.as_array() {
         for message in messages {
             let role = message
@@ -465,6 +469,18 @@ fn build_responses_body_from_chat(body: &Value) -> Value {
                 .get("content")
                 .cloned()
                 .unwrap_or(Value::String(String::new()));
+            if matches!(role, "system" | "developer") {
+                let text = chat_content_to_text(&content);
+                if !text.is_empty() {
+                    instructions = Some(match instructions {
+                        Some(existing) if !existing.is_empty() => {
+                            format!("{}\n\n{}", existing, text)
+                        }
+                        _ => text,
+                    });
+                }
+                continue;
+            }
             input.push(json!({
                 "role": role,
                 "content": normalize_chat_content(content),
@@ -473,6 +489,8 @@ fn build_responses_body_from_chat(body: &Value) -> Value {
     }
     let mut out = json!({
         "model": model,
+        "instructions": instructions
+            .unwrap_or_else(|| "You are ChatGPT, a helpful assistant.".to_string()),
         "input": input,
         "stream": body.get("stream").and_then(Value::as_bool).unwrap_or(false),
         "store": body.get("store").and_then(Value::as_bool).unwrap_or(false),
@@ -482,6 +500,29 @@ fn build_responses_body_from_chat(body: &Value) -> Value {
     }
     inject_image_tool(&mut out);
     out
+}
+
+fn chat_content_to_text(content: &Value) -> String {
+    match content {
+        Value::String(text) => text.trim().to_string(),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|part| {
+                if matches!(
+                    part.get("type").and_then(Value::as_str),
+                    Some("text" | "input_text")
+                ) {
+                    part.get("text").and_then(Value::as_str)
+                } else {
+                    None
+                }
+            })
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
 }
 
 fn normalize_chat_content(content: Value) -> Value {
@@ -1125,14 +1166,16 @@ mod tests {
             target: "/v1/chat/completions".to_string(),
             headers: HeaderMap::new(),
             body: Bytes::from_static(
-                br#"{"model":"gpt-5-codex","messages":[{"role":"user","content":"hi"}]}"#,
+                br#"{"model":"gpt-5-codex","messages":[{"role":"system","content":"Be brief."},{"role":"user","content":"hi"}]}"#,
             ),
         };
         let (prepared, adapter) = prepare_gateway_request(request).unwrap();
         assert_eq!(prepared.target, "/v1/responses");
         assert!(matches!(adapter, ResponseAdapter::ChatCompletions));
         let body: Value = serde_json::from_slice(&prepared.body).unwrap();
+        assert_eq!(body["instructions"], "Be brief.");
         assert_eq!(body["input"][0]["content"][0]["type"], "input_text");
+        assert_eq!(body["input"].as_array().unwrap().len(), 1);
     }
 
     #[test]
