@@ -796,12 +796,13 @@ fn extract_output_text(response: &Value) -> String {
 }
 
 fn extract_output_text_from_response_text(text: &str) -> String {
-    serde_json::from_str::<Value>(text)
-        .map(|value| extract_output_text(&value))
-        .ok()
-        .or_else(|| parse_sse_final_response(text))
-        .map(|value| extract_output_text(&value))
-        .unwrap_or_else(|| text.to_string())
+    if let Ok(value) = serde_json::from_str::<Value>(text) {
+        return extract_output_text(&value);
+    }
+    if let Some(value) = parse_sse_final_response(text) {
+        return extract_output_text(&value);
+    }
+    text.to_string()
 }
 
 fn parse_upstream_response_value(body: &[u8]) -> Option<Value> {
