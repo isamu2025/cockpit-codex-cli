@@ -1,0 +1,36 @@
+name: macos-build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-14
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build release binary
+        run: cargo build --release --bin cockpit-codex --target ${{ matrix.target }}
+      - name: Package artifact
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/cockpit-codex dist/cockpit-codex
+          cp README.md dist/README.md
+          chmod +x dist/cockpit-codex
+          tar -C dist -czf cockpit-codex-macos-${{ matrix.arch }}.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cockpit-codex-macos-${{ matrix.arch }}
+          path: cockpit-codex-macos-${{ matrix.arch }}.tar.gz
