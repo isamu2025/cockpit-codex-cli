@@ -109,9 +109,16 @@ pub async fn test_gateway(base_url: &str, api_key: &str, model: &str) -> Result<
         .bearer_auth(api_key)
         .json(&json!({
             "model": model,
-            "stream": false,
+            "instructions": "Reply with exactly: pong",
+            "input": [{
+                "role": "user",
+                "content": [{
+                    "type": "input_text",
+                    "text": "ping"
+                }]
+            }],
+            "stream": true,
             "store": false,
-            "input": "Reply with exactly: pong"
         }))
         .send()
         .await;
@@ -131,9 +138,14 @@ pub async fn test_gateway(base_url: &str, api_key: &str, model: &str) -> Result<
     Ok(TestResult {
         ok: status.is_success(),
         status: Some(status.as_u16()),
-        output: status
-            .is_success()
-            .then(|| extract_output_text_from_response_text(&text)),
+        output: status.is_success().then(|| {
+            let extracted = extract_output_text_from_response_text(&text);
+            if extracted.trim().is_empty() {
+                text.chars().take(4000).collect()
+            } else {
+                extracted
+            }
+        }),
         error: (!status.is_success()).then_some(text),
     })
 }

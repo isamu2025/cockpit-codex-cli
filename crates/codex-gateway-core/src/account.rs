@@ -86,6 +86,8 @@ pub fn import_auth_file(
         .unwrap_or(Value::Null);
     let email = email_override
         .map(str::to_string)
+        .or_else(|| string_field(&value, "email"))
+        .or_else(|| string_field(&value, "outlook_email"))
         .or_else(|| string_field(&claims, "email"))
         .or_else(|| string_field(&auth_claims, "email"))
         .unwrap_or_else(|| format!("imported-{}@unknown.local", Uuid::new_v4()));
@@ -94,7 +96,9 @@ pub fn import_auth_file(
         id: Uuid::new_v4().to_string(),
         name: name.to_string(),
         email,
-        account_id: string_field(&auth_claims, "chatgpt_account_id")
+        account_id: string_field(&value, "account_id")
+            .or_else(|| string_field(&value, "chatgpt_account_id"))
+            .or_else(|| string_field(&auth_claims, "chatgpt_account_id"))
             .or_else(|| string_field(&claims, "chatgpt_account_id")),
         organization_id: string_field(&auth_claims, "poid")
             .or_else(|| string_field(&auth_claims, "organization_id"))
