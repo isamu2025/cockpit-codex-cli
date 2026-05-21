@@ -377,24 +377,23 @@ async fn adapt_response(
             }
             bytes_response(status, &headers, body)
         }
-        ResponseAdapter::ChatCompletions => match serde_json::from_slice::<Value>(&body) {
-            Ok(value) => {
+        ResponseAdapter::ChatCompletions => match parse_upstream_response_value(&body) {
+            Some(value) => {
                 if let Some(id) = extract_response_id(&value) {
                     state.affinity.lock().await.insert(id, account_id);
                 }
                 json_ok(build_chat_completion_payload(&value))
             }
-            Err(error) => json_error(
+            None => json_error(
                 StatusCode::BAD_GATEWAY,
-                format!("parse upstream chat payload failed: {}", error),
+                "parse upstream chat payload failed".to_string(),
             ),
         },
-        ResponseAdapter::Images { response_format } => match serde_json::from_slice::<Value>(&body)
-        {
-            Ok(value) => json_ok(build_images_api_payload(&value, &response_format)),
-            Err(error) => json_error(
+        ResponseAdapter::Images { response_format } => match parse_upstream_response_value(&body) {
+            Some(value) => json_ok(build_images_api_payload(&value, &response_format)),
+            None => json_error(
                 StatusCode::BAD_GATEWAY,
-                format!("parse upstream image payload failed: {}", error),
+                "parse upstream image payload failed".to_string(),
             ),
         },
     }
@@ -492,7 +491,7 @@ fn build_responses_body_from_chat(body: &Value) -> Value {
         "instructions": instructions
             .unwrap_or_else(|| "You are ChatGPT, a helpful assistant.".to_string()),
         "input": input,
-        "stream": body.get("stream").and_then(Value::as_bool).unwrap_or(false),
+        "stream": true,
         "store": body.get("store").and_then(Value::as_bool).unwrap_or(false),
     });
     if let Some(tools) = body.get("tools") {
@@ -568,7 +567,7 @@ fn build_images_generation_request(body: &Value) -> Result<Value> {
         "tools": [tool],
         "tool_choice": {"type": "image_generation"},
         "store": false,
-        "stream": false
+        "stream": true
     }))
 }
 
@@ -628,7 +627,7 @@ fn build_image_responses_body(prompt: &str, images: &[String], tool: Value) -> V
         "tools": [tool],
         "tool_choice": {"type": "image_generation"},
         "store": false,
-        "stream": false
+        "stream": true
     })
 }
 
@@ -799,7 +798,41 @@ fn extract_output_text(response: &Value) -> String {
 fn extract_output_text_from_response_text(text: &str) -> String {
     serde_json::from_str::<Value>(text)
         .map(|value| extract_output_text(&value))
-        .unwrap_or_else(|_| text.to_string())
+        .ok()
+        .or_else(|| parse_sse_final_response(text))
+        .map(|value| extract_output_text(&value))
+        .unwrap_or_else(|| text.to_string())
+}
+
+fn parse_upstream_response_value(body: &[u8]) -> Option<Value> {
+    serde_json::from_slice::<Value>(body)
+        .ok()
+        .or_else(|| std::str::from_utf8(body).ok().and_then(parse_sse_final_response))
+}
+
+fn parse_sse_final_response(text: &str) -> Option<Value> {
+    let mut last_response = None;
+    for line in text.lines() {
+        let Some(data) = line.strip_prefix("data:") else {
+            continue;
+        };
+        let data = data.trim();
+        if data.is_empty() || data == "[DONE]" {
+            continue;
+        }
+        let Ok(value) = serde_json::from_str::<Value>(data) else {
+            continue;
+        };
+        if let Some(response) = value.get("response").cloned() {
+            if value.get("type").and_then(Value::as_str) == Some("response.completed") {
+                return Some(response);
+            }
+            last_response = Some(response);
+        } else {
+            last_response = Some(value);
+        }
+    }
+    last_response
 }
 
 fn collect_text(value: &Value, out: &mut String) {
@@ -1174,8 +1207,18 @@ mod tests {
         assert!(matches!(adapter, ResponseAdapter::ChatCompletions));
         let body: Value = serde_json::from_slice(&prepared.body).unwrap();
         assert_eq!(body["instructions"], "Be brief.");
+        assert_eq!(body["stream"], true);
         assert_eq!(body["input"][0]["content"][0]["type"], "input_text");
         assert_eq!(body["input"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn sse_response_text_extracts_completed_output() {
+        let sse = concat!(
+            "event: response.completed\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"content\":[{\"type\":\"output_text\",\"text\":\"pong\"}]}]}}\n\n"
+        );
+        assert_eq!(extract_output_text_from_response_text(sse), "pong");
     }
 
     #[test]
