@@ -805,9 +805,11 @@ fn extract_output_text_from_response_text(text: &str) -> String {
 }
 
 fn parse_upstream_response_value(body: &[u8]) -> Option<Value> {
-    serde_json::from_slice::<Value>(body)
-        .ok()
-        .or_else(|| std::str::from_utf8(body).ok().and_then(parse_sse_final_response))
+    serde_json::from_slice::<Value>(body).ok().or_else(|| {
+        std::str::from_utf8(body)
+            .ok()
+            .and_then(parse_sse_final_response)
+    })
 }
 
 fn parse_sse_final_response(text: &str) -> Option<Value> {
