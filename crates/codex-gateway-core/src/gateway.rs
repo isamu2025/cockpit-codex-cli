@@ -564,7 +564,7 @@ fn build_images_generation_request(body: &Value) -> Result<Value> {
     Ok(json!({
         "model": DEFAULT_IMAGES_MAIN_MODEL,
         "instructions": "Generate the requested image using the image_generation tool. Return only the image result.",
-        "input": prompt,
+        "input": [{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
         "tools": [tool],
         "tool_choice": {"type": "image_generation"},
         "store": false,
@@ -1243,6 +1243,7 @@ mod tests {
         let body: Value = serde_json::from_slice(&prepared.body).unwrap();
         assert!(body["instructions"].as_str().unwrap().contains("image"));
         assert_eq!(body["stream"], true);
+        assert_eq!(body["input"][0]["content"][0]["type"], "input_text");
         assert_eq!(body["tools"][0]["type"], "image_generation");
         assert_eq!(body["tools"][0]["model"], "gpt-image-2");
     }
