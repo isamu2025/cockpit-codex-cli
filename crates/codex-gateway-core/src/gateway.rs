@@ -221,7 +221,8 @@ async fn dispatch_with_accounts(
         }
     } else {
         let start = state.cursor.fetch_add(1, Ordering::Relaxed);
-        accounts.rotate_left(start % accounts.len());
+        let account_count = accounts.len();
+        accounts.rotate_left(start % account_count);
     }
 
     let mut last_error = DispatchError::new(StatusCode::SERVICE_UNAVAILABLE, "no usable account");
