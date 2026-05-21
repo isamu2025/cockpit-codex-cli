@@ -563,6 +563,7 @@ fn build_images_generation_request(body: &Value) -> Result<Value> {
     let tool = image_generation_tool(body);
     Ok(json!({
         "model": DEFAULT_IMAGES_MAIN_MODEL,
+        "instructions": "Generate the requested image using the image_generation tool. Return only the image result.",
         "input": prompt,
         "tools": [tool],
         "tool_choice": {"type": "image_generation"},
@@ -623,6 +624,7 @@ fn build_image_responses_body(prompt: &str, images: &[String], tool: Value) -> V
     }
     json!({
         "model": DEFAULT_IMAGES_MAIN_MODEL,
+        "instructions": "Generate the requested image using the image_generation tool. Return only the image result.",
         "input": [{"role": "user", "content": content}],
         "tools": [tool],
         "tool_choice": {"type": "image_generation"},
@@ -634,6 +636,7 @@ fn build_image_responses_body(prompt: &str, images: &[String], tool: Value) -> V
 fn image_generation_tool(body: &Value) -> Value {
     let mut tool = Map::new();
     tool.insert("type".to_string(), json!("image_generation"));
+    tool.insert("model".to_string(), json!(CODEX_IMAGE_MODEL_ID));
     for key in [
         "size",
         "quality",
@@ -1238,7 +1241,10 @@ mod tests {
         assert_eq!(prepared.target, "/v1/responses");
         assert!(matches!(adapter, ResponseAdapter::Images { .. }));
         let body: Value = serde_json::from_slice(&prepared.body).unwrap();
+        assert!(body["instructions"].as_str().unwrap().contains("image"));
+        assert_eq!(body["stream"], true);
         assert_eq!(body["tools"][0]["type"], "image_generation");
+        assert_eq!(body["tools"][0]["model"], "gpt-image-2");
     }
 
     #[test]
