@@ -22,8 +22,7 @@ use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, warn};
 
-const DEFAULT_CODEX_USER_AGENT: &str =
-    "codex-tui/0.118.0 (Linux; x86_64) cockpit-codex-cli/0.1.0";
+const DEFAULT_CODEX_USER_AGENT: &str = "codex-tui/0.118.0 (Linux; x86_64) cockpit-codex-cli/0.1.0";
 const DEFAULT_CODEX_ORIGINATOR: &str = "codex-tui";
 const CODEX_IMAGE_MODEL_ID: &str = "gpt-image-2";
 const DEFAULT_IMAGES_MAIN_MODEL: &str = "gpt-5.4-mini";
@@ -94,7 +93,9 @@ pub async fn serve(store: Store, options: GatewayOptions) -> Result<()> {
     if options.host == "0.0.0.0" {
         warn!("serving plain HTTP on 0.0.0.0; Bearer keys are visible on the network without TLS");
     }
-    let listener = TcpListener::bind(addr).await.with_context(|| format!("bind {}", addr))?;
+    let listener = TcpListener::bind(addr)
+        .await
+        .with_context(|| format!("bind {}", addr))?;
     info!("cockpit-codex gateway listening on http://{}", addr);
     axum::serve(listener, app).await.context("serve gateway")
 }
@@ -130,7 +131,9 @@ pub async fn test_gateway(base_url: &str, api_key: &str, model: &str) -> Result<
     Ok(TestResult {
         ok: status.is_success(),
         status: Some(status.as_u16()),
-        output: status.is_success().then(|| extract_output_text_from_response_text(&text)),
+        output: status
+            .is_success()
+            .then(|| extract_output_text_from_response_text(&text)),
         error: (!status.is_success()).then_some(text),
     })
 }
@@ -139,7 +142,12 @@ fn router(state: AppState) -> Router {
     Router::new()
         .route("/v1/models", any(handle))
         .fallback(any(handle))
-        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
         .with_state(state)
 }
 
@@ -147,7 +155,12 @@ async fn handle(State(state): State<AppState>, request: Request) -> Response {
     let (parts, body) = request.into_parts();
     let body = match axum::body::to_bytes(body, 64 * 1024 * 1024).await {
         Ok(body) => body,
-        Err(error) => return json_error(StatusCode::BAD_REQUEST, format!("read body failed: {}", error)),
+        Err(error) => {
+            return json_error(
+                StatusCode::BAD_REQUEST,
+                format!("read body failed: {}", error),
+            )
+        }
     };
     let parsed = ParsedGatewayRequest {
         method: parts.method,
@@ -160,13 +173,19 @@ async fn handle(State(state): State<AppState>, request: Request) -> Response {
         return StatusCode::NO_CONTENT.into_response();
     }
     if parsed.method != Method::GET && parsed.method != Method::POST {
-        return json_error(StatusCode::METHOD_NOT_ALLOWED, "Only GET and POST are allowed");
+        return json_error(
+            StatusCode::METHOD_NOT_ALLOWED,
+            "Only GET and POST are allowed",
+        );
     }
     if !parsed.target.starts_with("/v1/") {
         return json_error(StatusCode::NOT_FOUND, "Not Found");
     }
     if !authorized(&parsed.headers, &state.gateway_key.0) {
-        return json_error(StatusCode::UNAUTHORIZED, "missing or invalid gateway API key");
+        return json_error(
+            StatusCode::UNAUTHORIZED,
+            "missing or invalid gateway API key",
+        );
     }
     if is_models_request(&parsed.target) {
         return json_ok(build_models_response());
@@ -185,9 +204,15 @@ async fn dispatch_with_accounts(
     state: &AppState,
     request: &ParsedGatewayRequest,
 ) -> Result<(reqwest::Response, String), DispatchError> {
-    let mut accounts = state.store.list_accounts().map_err(DispatchError::unavailable)?;
+    let mut accounts = state
+        .store
+        .list_accounts()
+        .map_err(DispatchError::unavailable)?;
     if accounts.is_empty() {
-        return Err(DispatchError::new(StatusCode::SERVICE_UNAVAILABLE, "no accounts imported"));
+        return Err(DispatchError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "no accounts imported",
+        ));
     }
     let previous = previous_response_id(&request.body);
     if let Some(previous) = previous {
@@ -219,7 +244,9 @@ async fn dispatch_with_accounts(
                     continue;
                 }
                 match send_upstream(state, request, &account).await {
-                    Ok(response) if response.status().is_success() => return Ok((response, account.id)),
+                    Ok(response) if response.status().is_success() => {
+                        return Ok((response, account.id))
+                    }
                     Ok(response) => {
                         last_error = upstream_error(response).await;
                     }
@@ -251,7 +278,9 @@ async fn force_refresh_and_save(state: &AppState, account: &mut Account) -> Resu
         .refresh_token
         .clone()
         .ok_or_else(|| anyhow!("missing refresh token"))?;
-    let tokens = crate::account::refresh_access_token(&state.client, &refresh, account.id_token.as_deref()).await?;
+    let tokens =
+        crate::account::refresh_access_token(&state.client, &refresh, account.id_token.as_deref())
+            .await?;
     account.id_token = tokens.id_token.or_else(|| account.id_token.clone());
     account.access_token = tokens.access_token;
     account.refresh_token = tokens.refresh_token.or(Some(refresh));
@@ -274,7 +303,12 @@ async fn send_upstream(
         let lower = name.as_str().to_ascii_lowercase();
         if matches!(
             lower.as_str(),
-            "authorization" | "host" | "content-length" | "connection" | "accept-encoding" | "x-api-key"
+            "authorization"
+                | "host"
+                | "content-length"
+                | "connection"
+                | "accept-encoding"
+                | "x-api-key"
         ) {
             continue;
         }
@@ -308,7 +342,12 @@ async fn adapt_response(
     let headers = response.headers().clone();
     let body = match response.bytes().await {
         Ok(body) => body,
-        Err(error) => return json_error(StatusCode::BAD_GATEWAY, format!("read upstream failed: {}", error)),
+        Err(error) => {
+            return json_error(
+                StatusCode::BAD_GATEWAY,
+                format!("read upstream failed: {}", error),
+            )
+        }
     };
     if !status.is_success() {
         return bytes_response(status, &headers, body);
@@ -329,11 +368,17 @@ async fn adapt_response(
                 }
                 json_ok(build_chat_completion_payload(&value))
             }
-            Err(error) => json_error(StatusCode::BAD_GATEWAY, format!("parse upstream chat payload failed: {}", error)),
+            Err(error) => json_error(
+                StatusCode::BAD_GATEWAY,
+                format!("parse upstream chat payload failed: {}", error),
+            ),
         },
         ResponseAdapter::Images { response_format } => match serde_json::from_slice::<Value>(&body) {
             Ok(value) => json_ok(build_images_api_payload(&value, &response_format)),
-            Err(error) => json_error(StatusCode::BAD_GATEWAY, format!("parse upstream image payload failed: {}", error)),
+            Err(error) => json_error(
+                StatusCode::BAD_GATEWAY,
+                format!("parse upstream image payload failed: {}", error),
+            ),
         },
     }
 }
@@ -345,7 +390,8 @@ fn prepare_gateway_request(
         if request.method != Method::POST {
             return Err(anyhow!("chat/completions only supports POST"));
         }
-        let body: Value = serde_json::from_slice(&request.body).context("chat/completions body must be JSON")?;
+        let body: Value =
+            serde_json::from_slice(&request.body).context("chat/completions body must be JSON")?;
         request.body = Bytes::from(serde_json::to_vec(&build_responses_body_from_chat(&body))?);
         request.target = RESPONSES_PATH.to_string();
         return Ok((request, ResponseAdapter::ChatCompletions));
@@ -354,7 +400,8 @@ fn prepare_gateway_request(
         if request.method != Method::POST {
             return Err(anyhow!("images/generations only supports POST"));
         }
-        let body: Value = serde_json::from_slice(&request.body).context("images/generations body must be JSON")?;
+        let body: Value = serde_json::from_slice(&request.body)
+            .context("images/generations body must be JSON")?;
         let response_format = image_response_format(&body);
         request.body = Bytes::from(serde_json::to_vec(&build_images_generation_request(&body)?)?);
         request.target = RESPONSES_PATH.to_string();
@@ -476,7 +523,8 @@ fn build_images_edit_request(headers: &HeaderMap, body: &[u8]) -> Result<(Value,
         let response_format = image_response_format(&raw);
         return Ok((build_image_responses_body(&prompt, &form.images, tool), response_format));
     }
-    let body: Value = serde_json::from_slice(body).context("images/edits body must be JSON or multipart")?;
+    let body: Value =
+        serde_json::from_slice(body).context("images/edits body must be JSON or multipart")?;
     validate_image_model(&body)?;
     let prompt = body
         .get("prompt")
@@ -509,7 +557,14 @@ fn build_image_responses_body(prompt: &str, images: &[String], tool: Value) -> V
 fn image_generation_tool(body: &Value) -> Value {
     let mut tool = Map::new();
     tool.insert("type".to_string(), json!("image_generation"));
-    for key in ["size", "quality", "background", "output_format", "output_compression", "partial_images"] {
+    for key in [
+        "size",
+        "quality",
+        "background",
+        "output_format",
+        "output_compression",
+        "partial_images",
+    ] {
         if let Some(value) = body.get(key).filter(|value| !value.is_null()) {
             tool.insert(key.to_string(), value.clone());
         }
@@ -534,7 +589,10 @@ fn inject_image_tool(body: &mut Value) {
     let Some(tools) = tools.as_array_mut() else {
         return;
     };
-    if !tools.iter().any(|tool| tool.get("type").and_then(Value::as_str) == Some("image_generation")) {
+    if !tools
+        .iter()
+        .any(|tool| tool.get("type").and_then(Value::as_str) == Some("image_generation"))
+    {
         tools.push(json!({"type":"image_generation"}));
     }
 }
@@ -574,7 +632,8 @@ fn build_models_response() -> Value {
 }
 
 fn build_chat_completion_payload(response: &Value) -> Value {
-    let id = extract_response_id(response).unwrap_or_else(|| format!("chatcmpl-{}", uuid::Uuid::new_v4()));
+    let id = extract_response_id(response)
+        .unwrap_or_else(|| format!("chatcmpl-{}", uuid::Uuid::new_v4()));
     json!({
         "id": id,
         "object": "chat.completion",
@@ -688,7 +747,12 @@ fn extract_response_id(value: &Value) -> Option<String> {
 fn previous_response_id(body: &[u8]) -> Option<String> {
     serde_json::from_slice::<Value>(body)
         .ok()
-        .and_then(|value| value.get("previous_response_id").and_then(Value::as_str).map(str::to_string))
+        .and_then(|value| {
+            value
+                .get("previous_response_id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
 }
 
 fn extract_json_edit_images(body: &Value) -> Vec<String> {
@@ -823,7 +887,9 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() {
         return Some(0);
     }
-    haystack.windows(needle.len()).position(|window| window == needle)
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
 }
 
 fn image_response_format(body: &Value) -> String {
@@ -838,9 +904,16 @@ fn authorized(headers: &HeaderMap, expected: &str) -> bool {
     let bearer = headers
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer ").or_else(|| value.strip_prefix("bearer ")))
+        .and_then(|value| {
+            value
+                .strip_prefix("Bearer ")
+                .or_else(|| value.strip_prefix("bearer "))
+        })
         .map(str::trim);
-    let api_key = headers.get("x-api-key").and_then(|value| value.to_str().ok()).map(str::trim);
+    let api_key = headers
+        .get("x-api-key")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim);
     bearer == Some(expected) || api_key == Some(expected)
 }
 
@@ -887,7 +960,8 @@ fn should_try_next_account(status: reqwest::StatusCode) -> bool {
 }
 
 async fn upstream_error(response: reqwest::Response) -> DispatchError {
-    let status = StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let status =
+        StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
     let body = response.text().await.unwrap_or_default();
     let message = serde_json::from_str::<Value>(&body)
         .ok()
@@ -897,7 +971,12 @@ async fn upstream_error(response: reqwest::Response) -> DispatchError {
                 .and_then(|v| v.get("message").or(Some(v)))
                 .and_then(Value::as_str)
                 .map(str::to_string)
-                .or_else(|| value.get("message").and_then(Value::as_str).map(str::to_string))
+                .or_else(|| {
+                    value
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
         })
         .unwrap_or_else(|| {
             if body.trim().is_empty() {
@@ -936,13 +1015,16 @@ fn json_ok(value: Value) -> Response {
 }
 
 fn json_error(status: StatusCode, message: impl Into<String>) -> Response {
-    json_response(status, json!({
-        "error": {
-            "message": message.into(),
-            "type": "codex_gateway_error",
-            "code": status.as_u16()
-        }
-    }))
+    json_response(
+        status,
+        json!({
+            "error": {
+                "message": message.into(),
+                "type": "codex_gateway_error",
+                "code": status.as_u16()
+            }
+        }),
+    )
 }
 
 fn json_response(status: StatusCode, value: Value) -> Response {
@@ -955,7 +1037,11 @@ fn json_response(status: StatusCode, value: Value) -> Response {
     response
 }
 
-fn bytes_response(status: reqwest::StatusCode, headers: &reqwest::header::HeaderMap, body: Bytes) -> Response {
+fn bytes_response(
+    status: reqwest::StatusCode,
+    headers: &reqwest::header::HeaderMap,
+    body: Bytes,
+) -> Response {
     let status = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
     let mut response = (status, body).into_response();
     if let Some(content_type) = headers.get(CONTENT_TYPE) {
@@ -974,7 +1060,9 @@ mod tests {
     fn models_include_image_model() {
         let response = build_models_response();
         let data = response.get("data").and_then(Value::as_array).unwrap();
-        assert!(data.iter().any(|item| item.get("id").and_then(Value::as_str) == Some("gpt-image-2")));
+        assert!(data
+            .iter()
+            .any(|item| item.get("id").and_then(Value::as_str) == Some("gpt-image-2")));
     }
 
     #[test]
@@ -983,7 +1071,9 @@ mod tests {
             method: Method::POST,
             target: "/v1/chat/completions".to_string(),
             headers: HeaderMap::new(),
-            body: Bytes::from_static(br#"{"model":"gpt-5-codex","messages":[{"role":"user","content":"hi"}]}"#),
+            body: Bytes::from_static(
+                br#"{"model":"gpt-5-codex","messages":[{"role":"user","content":"hi"}]}"#,
+            ),
         };
         let (prepared, adapter) = prepare_gateway_request(request).unwrap();
         assert_eq!(prepared.target, "/v1/responses");
@@ -998,7 +1088,9 @@ mod tests {
             method: Method::POST,
             target: "/v1/images/generations".to_string(),
             headers: HeaderMap::new(),
-            body: Bytes::from_static(br#"{"model":"gpt-image-2","prompt":"draw","size":"1024x1024"}"#),
+            body: Bytes::from_static(
+                br#"{"model":"gpt-image-2","prompt":"draw","size":"1024x1024"}"#,
+            ),
         };
         let (prepared, adapter) = prepare_gateway_request(request).unwrap();
         assert_eq!(prepared.target, "/v1/responses");
@@ -1012,8 +1104,20 @@ mod tests {
         let boundary = "test-boundary";
         let png = b"\x89PNG\r\n\x1a\nabc";
         let mut body = Vec::new();
-        body.extend_from_slice(format!("--{}\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\nedit it\r\n", boundary).as_bytes());
-        body.extend_from_slice(format!("--{}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"a.png\"\r\nContent-Type: image/png\r\n\r\n", boundary).as_bytes());
+        body.extend_from_slice(
+            format!(
+                "--{}\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\nedit it\r\n",
+                boundary
+            )
+            .as_bytes(),
+        );
+        body.extend_from_slice(
+            format!(
+                "--{}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"a.png\"\r\nContent-Type: image/png\r\n\r\n",
+                boundary
+            )
+            .as_bytes(),
+        );
         body.extend_from_slice(png);
         body.extend_from_slice(format!("\r\n--{}--\r\n", boundary).as_bytes());
 
@@ -1024,7 +1128,9 @@ mod tests {
         );
         let (prepared, response_format) = build_images_edit_request(&headers, &body).unwrap();
         assert_eq!(response_format, "b64_json");
-        let image_url = prepared["input"][0]["content"][1]["image_url"].as_str().unwrap();
+        let image_url = prepared["input"][0]["content"][1]["image_url"]
+            .as_str()
+            .unwrap();
         assert!(image_url.starts_with("data:image/png;base64,"));
     }
 

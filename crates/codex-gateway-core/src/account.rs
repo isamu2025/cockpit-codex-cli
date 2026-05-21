@@ -68,9 +68,14 @@ impl Account {
     }
 }
 
-pub fn import_auth_file(path: &Path, name: &str, email_override: Option<&str>) -> Result<ImportedAccount> {
+pub fn import_auth_file(
+    path: &Path,
+    name: &str,
+    email_override: Option<&str>,
+) -> Result<ImportedAccount> {
     let text = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
-    let value: Value = serde_json::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
+    let value: Value =
+        serde_json::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
     let tokens = extract_tokens(&value).ok_or_else(|| {
         anyhow!("auth file does not contain access_token/accessToken or tokens.access_token")
     })?;
@@ -112,10 +117,12 @@ pub async fn ensure_fresh(account: &mut Account, client: &reqwest::Client) -> Re
     if !is_jwt_expired_with_skew(&account.access_token, TOKEN_REFRESH_SKEW_SECONDS) {
         return Ok(false);
     }
-    let refresh_token = account
-        .refresh_token
-        .clone()
-        .ok_or_else(|| anyhow!("account {} has expired access token and no refresh token", account.email))?;
+    let refresh_token = account.refresh_token.clone().ok_or_else(|| {
+        anyhow!(
+            "account {} has expired access token and no refresh token",
+            account.email
+        )
+    })?;
     let tokens = refresh_access_token(client, &refresh_token, account.id_token.as_deref()).await?;
     account.id_token = tokens.id_token.or_else(|| account.id_token.clone());
     account.access_token = tokens.access_token;
@@ -140,9 +147,16 @@ pub async fn refresh_access_token(
         .await
         .context("send token refresh request")?;
     let status = response.status();
-    let body = response.text().await.context("read token refresh response")?;
+    let body = response
+        .text()
+        .await
+        .context("read token refresh response")?;
     if !status.is_success() {
-        return Err(anyhow!("token refresh failed: status={}, body_len={}", status, body.len()));
+        return Err(anyhow!(
+            "token refresh failed: status={}, body_len={}",
+            status,
+            body.len()
+        ));
     }
     let value: Value = serde_json::from_str(&body).context("parse token refresh response")?;
     let access_token = value
@@ -178,9 +192,10 @@ pub fn extract_tokens(value: &Value) -> Option<CodexTokens> {
     for candidate in candidates.into_iter().flatten() {
         let access_token = string_field(candidate, "access_token")
             .or_else(|| string_field(candidate, "accessToken"))?;
-        let id_token = string_field(candidate, "id_token").or_else(|| string_field(candidate, "idToken"));
-        let refresh_token =
-            string_field(candidate, "refresh_token").or_else(|| string_field(candidate, "refreshToken"));
+        let id_token =
+            string_field(candidate, "id_token").or_else(|| string_field(candidate, "idToken"));
+        let refresh_token = string_field(candidate, "refresh_token")
+            .or_else(|| string_field(candidate, "refreshToken"));
         return Some(CodexTokens {
             id_token,
             access_token,

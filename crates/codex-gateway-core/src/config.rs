@@ -99,4 +99,3 @@ pub fn rotate_gateway_key(data_dir: &Path) -> Result<GatewayKey> {
     fs::write(&path, format!("{}\n", key)).with_context(|| format!("write {}", path.display()))?;
     Ok(GatewayKey(key))
 }
-

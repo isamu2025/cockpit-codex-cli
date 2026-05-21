@@ -1,5 +1,8 @@
 use crate::account::{import_auth_file, Account, AccountSummary, ImportedAccount};
-use crate::config::{ensure_data_dir, load_config, load_or_create_gateway_key, rotate_gateway_key, Config, GatewayKey};
+use crate::config::{
+    ensure_data_dir, load_config, load_or_create_gateway_key, rotate_gateway_key, Config,
+    GatewayKey,
+};
 use anyhow::{anyhow, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -67,7 +70,8 @@ impl Store {
             if path.extension().and_then(|value| value.to_str()) != Some("json") {
                 continue;
             }
-            let text = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+            let text =
+                fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
             let account: Account =
                 serde_json::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
             accounts.push(account);
@@ -77,7 +81,11 @@ impl Store {
     }
 
     pub fn list_account_summaries(&self) -> Result<Vec<AccountSummary>> {
-        Ok(self.list_accounts()?.into_iter().map(|account| account.summary()).collect())
+        Ok(self
+            .list_accounts()?
+            .into_iter()
+            .map(|account| account.summary())
+            .collect())
     }
 
     pub fn remove_account(&self, id_or_email: &str) -> Result<Account> {
@@ -102,4 +110,3 @@ impl Store {
         self.data_dir.join("accounts").join(format!("{}.json", id))
     }
 }
-

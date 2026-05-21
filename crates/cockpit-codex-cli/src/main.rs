@@ -95,7 +95,10 @@ async fn main() -> Result<()> {
             println!("  name: {}", imported.account.name);
             println!("  email: {}", imported.account.email);
             println!("  source: {}", imported.source);
-            println!("  refresh token: {}", imported.account.refresh_token.is_some());
+            println!(
+                "  refresh token: {}",
+                imported.account.refresh_token.is_some()
+            );
         }
         Commands::Accounts { command } => match command {
             AccountCommand::List => {
@@ -178,4 +181,3 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-
