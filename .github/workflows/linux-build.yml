@@ -1,0 +1,31 @@
+name: linux-build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Install musl tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build release binary
+        run: cargo build --release --bin cockpit-codex --target x86_64-unknown-linux-musl
+      - name: Package artifact
+        run: |
+          mkdir -p dist
+          cp target/x86_64-unknown-linux-musl/release/cockpit-codex dist/cockpit-codex
+          cp README.md dist/README.md
+          chmod +x dist/cockpit-codex
+          tar -C dist -czf cockpit-codex-linux-x64.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cockpit-codex-linux-x64
+          path: cockpit-codex-linux-x64.tar.gz
