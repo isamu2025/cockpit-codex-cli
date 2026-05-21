@@ -314,7 +314,10 @@ async fn send_upstream(
         }
         builder = builder.header(name, value);
     }
-    builder = builder.header(AUTHORIZATION, format!("Bearer {}", account.access_token.trim()));
+    builder = builder.header(
+        AUTHORIZATION,
+        format!("Bearer {}", account.access_token.trim()),
+    );
     builder = builder.header(USER_AGENT, DEFAULT_CODEX_USER_AGENT);
     builder = builder.header("Originator", DEFAULT_CODEX_ORIGINATOR);
     if let Some(account_id) = account.account_id.as_deref() {
@@ -373,7 +376,8 @@ async fn adapt_response(
                 format!("parse upstream chat payload failed: {}", error),
             ),
         },
-        ResponseAdapter::Images { response_format } => match serde_json::from_slice::<Value>(&body) {
+        ResponseAdapter::Images { response_format } => match serde_json::from_slice::<Value>(&body)
+        {
             Ok(value) => json_ok(build_images_api_payload(&value, &response_format)),
             Err(error) => json_error(
                 StatusCode::BAD_GATEWAY,
@@ -403,7 +407,9 @@ fn prepare_gateway_request(
         let body: Value = serde_json::from_slice(&request.body)
             .context("images/generations body must be JSON")?;
         let response_format = image_response_format(&body);
-        request.body = Bytes::from(serde_json::to_vec(&build_images_generation_request(&body)?)?);
+        request.body = Bytes::from(serde_json::to_vec(&build_images_generation_request(
+            &body,
+        )?)?);
         request.target = RESPONSES_PATH.to_string();
         return Ok((request, ResponseAdapter::Images { response_format }));
     }
@@ -430,13 +436,22 @@ fn prepare_gateway_request(
 }
 
 fn build_responses_body_from_chat(body: &Value) -> Value {
-    let model = body.get("model").cloned().unwrap_or_else(|| json!("gpt-5-codex"));
+    let model = body
+        .get("model")
+        .cloned()
+        .unwrap_or_else(|| json!("gpt-5-codex"));
     let messages = body.get("messages").cloned().unwrap_or_else(|| json!([]));
     let mut input = Vec::new();
     if let Some(messages) = messages.as_array() {
         for message in messages {
-            let role = message.get("role").and_then(Value::as_str).unwrap_or("user");
-            let content = message.get("content").cloned().unwrap_or(Value::String(String::new()));
+            let role = message
+                .get("role")
+                .and_then(Value::as_str)
+                .unwrap_or("user");
+            let content = message
+                .get("content")
+                .cloned()
+                .unwrap_or(Value::String(String::new()));
             input.push(json!({
                 "role": role,
                 "content": normalize_chat_content(content),
@@ -508,7 +523,10 @@ fn build_images_edit_request(headers: &HeaderMap, body: &[u8]) -> Result<(Value,
         .get(CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default();
-    if content_type.to_ascii_lowercase().starts_with("multipart/form-data") {
+    if content_type
+        .to_ascii_lowercase()
+        .starts_with("multipart/form-data")
+    {
         let form = parse_multipart_form(content_type, body)?;
         let prompt = form
             .fields
@@ -521,7 +539,10 @@ fn build_images_edit_request(headers: &HeaderMap, body: &[u8]) -> Result<(Value,
         let raw = form.raw_fields;
         let tool = image_generation_tool(&raw);
         let response_format = image_response_format(&raw);
-        return Ok((build_image_responses_body(&prompt, &form.images, tool), response_format));
+        return Ok((
+            build_image_responses_body(&prompt, &form.images, tool),
+            response_format,
+        ));
     }
     let body: Value =
         serde_json::from_slice(body).context("images/edits body must be JSON or multipart")?;
@@ -536,7 +557,10 @@ fn build_images_edit_request(headers: &HeaderMap, body: &[u8]) -> Result<(Value,
     }
     let response_format = image_response_format(&body);
     let tool = image_generation_tool(&body);
-    Ok((build_image_responses_body(prompt, &images, tool), response_format))
+    Ok((
+        build_image_responses_body(prompt, &images, tool),
+        response_format,
+    ))
 }
 
 fn build_image_responses_body(prompt: &str, images: &[String], tool: Value) -> Value {
@@ -573,11 +597,18 @@ fn image_generation_tool(body: &Value) -> Value {
 }
 
 fn validate_image_model(body: &Value) -> Result<()> {
-    let model = body.get("model").and_then(Value::as_str).unwrap_or(CODEX_IMAGE_MODEL_ID);
+    let model = body
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or(CODEX_IMAGE_MODEL_ID);
     if model == CODEX_IMAGE_MODEL_ID {
         Ok(())
     } else {
-        Err(anyhow!("unsupported image model {}; expected {}", model, CODEX_IMAGE_MODEL_ID))
+        Err(anyhow!(
+            "unsupported image model {}; expected {}",
+            model,
+            CODEX_IMAGE_MODEL_ID
+        ))
     }
 }
 
@@ -585,7 +616,9 @@ fn inject_image_tool(body: &mut Value) {
     let Some(object) = body.as_object_mut() else {
         return;
     };
-    let tools = object.entry("tools").or_insert_with(|| Value::Array(Vec::new()));
+    let tools = object
+        .entry("tools")
+        .or_insert_with(|| Value::Array(Vec::new()));
     let Some(tools) = tools.as_array_mut() else {
         return;
     };
@@ -718,7 +751,10 @@ fn extract_output_text_from_response_text(text: &str) -> String {
 fn collect_text(value: &Value, out: &mut String) {
     match value {
         Value::Object(object) => {
-            if matches!(object.get("type").and_then(Value::as_str), Some("output_text" | "text")) {
+            if matches!(
+                object.get("type").and_then(Value::as_str),
+                Some("output_text" | "text")
+            ) {
                 if let Some(text) = object.get("text").and_then(Value::as_str) {
                     out.push_str(text);
                 }
@@ -740,7 +776,12 @@ fn extract_response_id(value: &Value) -> Option<String> {
     value
         .get("id")
         .and_then(Value::as_str)
-        .or_else(|| value.get("response").and_then(|v| v.get("id")).and_then(Value::as_str))
+        .or_else(|| {
+            value
+                .get("response")
+                .and_then(|v| v.get("id"))
+                .and_then(Value::as_str)
+        })
         .map(str::to_string)
 }
 
@@ -800,8 +841,7 @@ fn parse_multipart_form(content_type: &str, body: &[u8]) -> Result<ParsedMultipa
         let headers = String::from_utf8_lossy(&part[..header_end]);
         let mut value = &part[header_end + 4..];
         value = trim_part_suffix(value);
-        let Some(name) = multipart_name(&headers)
-        else {
+        let Some(name) = multipart_name(&headers) else {
             continue;
         };
         if name == "image" || name == "images" {
